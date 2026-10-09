@@ -2,186 +2,105 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>XIAO Direct-to-Drive</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Cloud Dashboard</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #fff; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: #16213e; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 400px; }
-        h2 { margin-top: 0; color: #e94560; }
-        button { width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.3s; }
-        .btn-connect { background: #e94560; color: white; }
-        .btn-capture { background: #0f3460; color: white; }
-        .btn-upload { background: #533483; color: white; }
-        button:disabled { opacity: 0.4; cursor: not-allowed; }
-        button:hover:not(:disabled) { transform: translateY(-2px); }
-        #status { margin-top: 20px; font-size: 14px; min-height: 20px; color: #a0a0a0; }
-        
-        .progress-container { 
-            height: 25px; 
-            background: #0f3460; 
-            border-radius: 12px; 
-            margin-top: 20px; 
-            overflow: hidden; 
-            display: none;
-            border: 2px solid #e94560;
-        }
-        .progress-bar { 
-            height: 100%; 
-            background: linear-gradient(90deg, #e94560, #ff6b6b); 
-            width: 0%; 
-            transition: width 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
-            font-weight: bold;
-            color: white;
-        }
-        
+        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; text-align: center; padding: 20px; margin: 0; }
+        h1 { color: #00e676; margin-bottom: 5px; }
+        .subtitle { color: #888; margin-bottom: 30px; }
+        .card { background: #1e1e1e; padding: 25px; border-radius: 12px; margin: 20px auto; max-width: 500px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border: 1px solid #333; }
+        h3 { color: #fff; margin-top: 0; }
+        button, .file-label { background: #00e676; color: #121212; border: none; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%; margin-top: 15px; transition: 0.2s; box-sizing: border-box; display: inline-block;}
+        button:hover, .file-label:hover { background: #00c853; transform: translateY(-2px); }
+        .blue-btn { background: #2196f3; color: white; }
+        .blue-btn:hover { background: #1976d2; }
         input[type="file"] { display: none; }
-        .file-label { display: block; padding: 12px; background: #0f3460; border-radius: 10px; cursor: pointer; margin-bottom: 10px; }
-        .note { font-size: 12px; color: #888; margin-top: 10px; }
+        input[type="text"] { padding: 12px; width: 100%; background: #2a2a2a; border: 1px solid #444; color: #fff; border-radius: 8px; margin-top: 10px; box-sizing: border-box; font-size: 16px;}
+        .status { margin-top: 15px; color: #888; font-size: 14px; min-height: 20px; }
+        .success { color: #00e676; font-weight: bold; }
+        .error { color: #ff5252; font-weight: bold; }
     </style>
 </head>
 <body>
+    <h1>📷 Cloud Drive Dashboard</h1>
+    <p class="subtitle">XIAO ESP32S3 & Google Drive Integration</p>
+    
     <div class="card">
-        <h2>📷 XIAO Direct-to-Drive</h2>
-        <button class="btn-connect" id="connectBtn" onclick="connectSerial()">🔌 Connect to XIAO</button>
-        
-        <button class="btn-capture" id="captureBtn" onclick="sendCommand('CAMERA\n')" disabled>📸 Capture & Send</button>
-        
-        <label class="file-label" for="fileInput">📁 Choose File: <span id="fileName">None</span></label>
-        <input type="file" id="fileInput" accept="image/*">
-        <button class="btn-upload" id="uploadBtn" onclick="sendFile()" disabled>☁️ Upload File</button>
-        
-        <div class="progress-container" id="progressContainer">
-            <div class="progress-bar" id="progressBar">0%</div>
-        </div>
-        
-        <div id="status">Waiting for connection...</div>
-        <div class="note">Note: Camera capture requires Arduino C++. Use FILE upload with MicroPython.</div>
+        <h3>📡 1. Remote ESP32 Capture</h3>
+        <p style="color: #aaa; font-size: 14px;">Triggers the XIAO to take a photo and upload it directly to your Drive.</p>
+        <input type="text" id="espIp" placeholder="Enter ESP32 IP (e.g., 192.168.x.x)" value="">
+        <button onclick="triggerEsp32()">Trigger Camera & Upload</button>
+        <p class="status" id="espStatus">Ready.</p>
+    </div>
+
+    <div class="card">
+        <h3>📁 2. Local Laptop Upload</h3>
+        <p style="color: #aaa; font-size: 14px;">Select an image from your computer to upload directly to your Drive.</p>
+        <label for="fileInput" class="file-label blue-btn">Select Local Image</label>
+        <input type="file" id="fileInput" accept="image/*" onchange="uploadLocalFile()">
+        <p class="status" id="localStatus">Ready.</p>
     </div>
 
     <script>
-        let port, reader;
-        let fileBuffer = null;
-        let bytesSent = 0;
-        let totalBytes = 0;
+        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxhAiBMWBEt3AAO4j-Oj1DT6nEOEkLoDao9jq-iFv9GzLdJ-2YFE4Oheqcdp-xPsOM/exec"; 
 
-        async function connectSerial() {
+        async function triggerEsp32() {
+            const ip = document.getElementById('espIp').value;
+            const statusEl = document.getElementById('espStatus');
+            if (!ip) {
+                statusEl.className = 'status error';
+                statusEl.innerText = "❌ Please enter the ESP32 IP address first.";
+                return;
+            }
+            statusEl.className = 'status';
+            statusEl.innerText = "Triggering ESP32... Please wait (~5-8 seconds).";
+            
             try {
-                port = await navigator.serial.requestPort();
-                await port.open({ baudRate: 115200 });
-                
-                document.getElementById('connectBtn').textContent = "✅ Connected";
-                document.getElementById('connectBtn').disabled = true;
-                document.getElementById('captureBtn').disabled = false;
-                document.getElementById('status').textContent = "Ready for commands.";
-                
-                readLoop();
-            } catch (err) {
-                document.getElementById('status').textContent = "❌ Connection failed: " + err;
+                await fetch(`http://${ip}/upload`, { mode: 'no-cors' });
+                statusEl.className = 'status success';
+                statusEl.innerText = "✅ Trigger sent! Check your Google Drive folder.";
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.innerText = "❌ Failed to reach ESP32. Check IP and Wi-Fi.";
             }
         }
 
-        async function readLoop() {
-            const textDecoder = new TextDecoderStream();
-            port.readable.pipeTo(textDecoder.writable);
-            reader = textDecoder.readable.getReader();
-            let buffer = "";
+        async function uploadLocalFile() {
+            const fileInput = document.getElementById('fileInput');
+            const statusEl = document.getElementById('localStatus');
+            if (fileInput.files.length === 0) return;
+            
+            const file = fileInput.files[0];
+            statusEl.className = 'status';
+            statusEl.innerText = "Reading file...";
 
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                buffer += value;
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                const base64 = e.target.result.split(',')[1]; 
+                statusEl.innerText = "Uploading to Google Drive...";
                 
-                let lines = buffer.split('\n');
-                buffer = lines.pop();
-
-                for (let line of lines) {
-                    line = line.trim();
-                    if (!line) continue;
-
-                    if (line.startsWith("SEND:")) {
-                        const size = parseInt(line.split(':')[1]);
-                        await sendChunk(size);
-                    } else if (line === "DONE") {
-                        document.getElementById('status').textContent = "✅ Success! Check Google Drive.";
-                        document.getElementById('progressContainer').style.display = 'none';
-                        enableButtons();
-                    } else if (line.startsWith("PROGRESS:")) {
-                        const pct = parseInt(line.split(':')[1]);
-                        updateProgress(pct);
-                    } else if (line.startsWith("ERROR")) {
-                        document.getElementById('status').textContent = "❌ " + line;
-                        document.getElementById('progressContainer').style.display = 'none';
-                        enableButtons();
+                try {
+                    const payload = { filename: file.name, imageBase64: base64 };
+                    const response = await fetch(APPS_SCRIPT_URL, {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        statusEl.className = 'status success';
+                        statusEl.innerText = "✅ Successfully uploaded to Google Drive!";
                     } else {
-                        console.log("ESP:", line);
+                        statusEl.className = 'status error';
+                        statusEl.innerText = "❌ Upload failed: " + result.message;
                     }
+                } catch (error) {
+                    statusEl.className = 'status error';
+                    statusEl.innerText = "❌ Network error. Check Apps Script URL.";
                 }
-            }
+            };
+            reader.readAsDataURL(file);
         }
-
-        async function sendChunk(size) {
-            if (!fileBuffer) return;
-            const chunk = fileBuffer.slice(bytesSent, bytesSent + size);
-            const writer = port.writable.getWriter();
-            await writer.write(chunk);
-            writer.releaseLock();
-            
-            bytesSent += size;
-            const pct = Math.min(100, Math.round((bytesSent / totalBytes) * 100));
-            updateProgress(pct);
-        }
-
-        function updateProgress(pct) {
-            const progressBar = document.getElementById('progressBar');
-            progressBar.style.width = pct + "%";
-            progressBar.textContent = pct + "%";
-        }
-
-        async function sendCommand(cmd) {
-            disableButtons();
-            document.getElementById('status').textContent = "⏳ Processing...";
-            const writer = port.writable.getWriter();
-            await writer.write(new TextEncoder().encode(cmd));
-            writer.releaseLock();
-        }
-
-        async function sendFile() {
-            const file = document.getElementById('fileInput').files[0];
-            if (!file) return;
-            
-            disableButtons();
-            document.getElementById('progressContainer').style.display = 'block';
-            updateProgress(0);
-            document.getElementById('status').textContent = "☁️ Streaming to Drive...";
-            
-            fileBuffer = await file.arrayBuffer();
-            bytesSent = 0;
-            totalBytes = fileBuffer.byteLength;
-            const ext = file.name.split('.').pop();
-            
-            const writer = port.writable.getWriter();
-            await writer.write(new TextEncoder().encode(`FILE:${totalBytes}:${ext}\n`));
-            writer.releaseLock();
-        }
-
-        function disableButtons() {
-            document.getElementById('captureBtn').disabled = true;
-            document.getElementById('uploadBtn').disabled = true;
-        }
-        function enableButtons() {
-            document.getElementById('captureBtn').disabled = false;
-            document.getElementById('uploadBtn').disabled = false;
-        }
-
-        document.getElementById('fileInput').addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                document.getElementById('fileName').textContent = e.target.files[0].name;
-                document.getElementById('uploadBtn').disabled = false;
-            }
-        });
     </script>
 </body>
 </html>
